@@ -38,3 +38,9 @@ LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libstdc++.so.6 python3 p4_bkz_high.py
 - `scripts/p4_klein_numba.py` — JIT-compiled Klein worker, 16x faster (6500 trials/s vs 400/s)
 - Pre-generates random buffers, eliminates Python interpreter overhead
 - 4 workers achieve ~26,000 trials/s total
+
+## BKZ-110 Basis (Homogeneous linf=16)
+- `bases/basis_b110_homo16.npy` — Best homogeneous basis (linf=16)
+- GS: d50→100=0.038 (steep, worse for pure Klein)
+- Pure Klein floor on this basis: linf=22
+- Need smarter CVP (enumeration/pruning) to leverage the better homogeneous quality
