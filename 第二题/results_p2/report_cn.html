@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 2cm; }
+  body { font-family: 'DejaVu Sans', 'Droid Sans Fallback', sans-serif; font-size: 11pt; line-height: 1.6; color: #222; }
+  h1 { font-size: 18pt; text-align: center; margin-bottom: 5px; }
+  h2 { font-size: 14pt; background: #e8e8e8; padding: 6px 10px; margin-top: 24px; }
+  table { border-collapse: collapse; margin: 10px 0; width: 100%; }
+  th { background: #d0d0d0; padding: 5px 8px; text-align: center; font-weight: bold; }
+  td { border: 1px solid #ccc; padding: 4px 8px; text-align: center; }
+  .math { font-family: 'DejaVu Serif', serif; font-style: italic; }
+  .path { font-size: 13pt; font-weight: bold; text-align: center; margin: 12px 0; }
+  .check { color: #1a7a1a; font-weight: bold; }
+  p { margin: 6px 0; }
+</style>
+</head>
+<body>
+
+<h1>Problem 2 — SIS CVP 求解报告</h1>
+
+<h2>一、问题描述</h2>
+<p>寻找 <span class="math">v, u ∈ Z<sup>100</sup></span>，满足：</p>
+<p style="text-align:center"><span class="math">Av + u ≡ t (mod 100), &emsp; ‖v‖<sub>∞</sub> ≤ 15, &emsp; ‖u‖<sub>∞</sub> ≤ 15</span></p>
+<p>其中 <span class="math">A ∈ Z<sub>100</sub><sup>100×100</sup></span>，<span class="math">t ∈ Z<sub>100</sub><sup>100</sup></span>。格维度 200，模数 q = 100。</p>
+
+<h2>二、所有尝试方法汇总</h2>
+
+<h3>BKZ 渐进归约</h3>
+<table>
+<tr><th>BKZ级别</th><th>耗时</th><th>齐次最佳</th><th>Babai CVP</th></tr>
+<tr><td>40</td><td>3s</td><td>score=32</td><td>score=45</td></tr>
+<tr><td>50</td><td>15s</td><td>—</td><td>—</td></tr>
+<tr><td>60</td><td>50s</td><td>score=30</td><td>score=45</td></tr>
+<tr><td>65</td><td>2min</td><td>score=21</td><td>score=31</td></tr>
+<tr><td>70</td><td>7min</td><td>score=17</td><td>score=30</td></tr>
+<tr><td>75</td><td>1.5h</td><td>score=15</td><td>score=24</td></tr>
+<tr><td><b>80</b></td><td><b>3.4h</b></td><td><b>score=14</b></td><td><b>score=24</b></td></tr>
+<tr><td>85</td><td>15.8h</td><td>已杀</td><td>已杀</td></tr>
+</table>
+<p><b>关键</b>：BKZ-80 齐次 ℓ<sub>∞</sub> = 14（3 行达标），但 Babai CVP 卡在 24。</p>
+
+<h3>全部方法完整对比</h3>
+<table>
+<tr><th>方法</th><th>最佳 Score</th><th>结论</th></tr>
+<tr><td>Babai CVP (BKZ-80)</td><td>24</td><td>基线</td></tr>
+<tr><td>Babai + 短齐次行组合</td><td>21</td><td>局部最优</td></tr>
+<tr><td>随机化 Babai (5万次)</td><td>24</td><td>无改善</td></tr>
+<tr><td>模拟退火</td><td>24</td><td>随机扰动破坏性大</td></tr>
+<tr><td>贪心坐标下降</td><td>22</td><td>近视，卡死</td></tr>
+<tr><td>定向行组合搜索</td><td>21</td><td>子空间不匹配</td></tr>
+<tr><td>LLL + Kannan (修正u公式)</td><td>44</td><td>远差于 Babai</td></tr>
+<tr><td>G6K workout (bs=40–80)</td><td>24–26</td><td>CVP 无增益</td></tr>
+<tr><td>fpylll CVP.closest_vector</td><td>—</td><td>3.8h 无结果</td></tr>
+<tr><td>Z3 SMT / CP-SAT</td><td>—</td><td>超时</td></tr>
+</table>
+
+<h2>三、成功解法：B&amp;B GSO 剪枝枚举</h2>
+
+<p><b>第1步：BKZ-80 格基归约（3h23m）</b></p>
+<p>构造正确的 SIS 格基（200×200）：</p>
+<p style="text-align:center"><span class="math">B = [ I<sub>100</sub>, −A<sup>T</sup> ; 0, q·I<sub>100</sub> ]</span></p>
+<p>用 fpylll BKZ-80 归约（strategies=default.json, max_loops=2）。</p>
+
+<p><b>第2步：Babai CVP → 初始解 score=24</b></p>
+<p>在 BKZ-80 基上做 Babai 最近平面算法，得到初始候选解：‖v‖<sub>∞</sub>=24, ‖u‖<sub>∞</sub>=19，仅 6 个坐标超标。</p>
+
+<p><b>第3步：B&amp;B GSO 剪枝枚举 → score=15（关键突破）</b></p>
+<p><b>原理</b>：Babai 取整误差集中在最后几个 GSO 维度。BKZ-80 基中：</p>
+<p>　· 维度 0–191：GSO 范数大（~10⁴），Babai 取值准确，误差可忽略</p>
+<p>　· 维度 192–199：GSO 范数小（接近高斯启发式），但 μ 系数将修正反向传播到全部 200 个坐标</p>
+
+<p><b>做法</b>：</p>
+<p>　1. 获取 Babai 系数 cⱼ (j=0..199)</p>
+<p>　2. 枚举最后 8 个系数的邻域，每个 ±4 → 9⁸ ≈ 4300 万组合</p>
+<p>　3. 对每种组合计算 v，通过 <span class="math">u = centered((t − Av) % q)</span> 得到 u</p>
+<p>　4. <b>GSO ℓ₂ 下界剪枝</b>：若当前残差的 ℓ₂ 下界 &gt; 当前最优 ℓ₂，跳过该分支</p>
+<p>　5. 剩余 192 维仍用 Babai 取整（无需枚举）</p>
+
+<p class="path">求解路径：<span class="math">24 → 23 → 22 → 20 → 18 → 17 → 16 → <b>15</b></span></p>
+<p style="text-align:center">耗时：<b>~6 分钟</b>。4300 万组合，GSO 剪枝筛掉大部分无效分支。</p>
+
+<p class="check">最终结果：‖v‖<sub>∞</sub> = 15, ‖u‖<sub>∞</sub> = 15, (Av+u−t) % 100 = 0 ✓</p>
+
+<h2>四、为什么 B&amp;B 比其他所有方法快几个数量级</h2>
+
+<h3>1. 搜对了空间</h3>
+<p>Babai 误差几乎全部集中在最后 8 个 GSO 维度。前 192 维 GSO 范数大，Babai 在这些维度的取整误差对最终 ℓ<sub>∞</sub> 影响可忽略。后 8 维虽然 GSO 范数小，但其 μ 系数将系数变化传播到全部坐标。修正这 8 个维度 ±4 就足以将 ℓ<sub>∞</sub> 从 24 压到 15。</p>
+
+<h3>2. GSO ℓ₂ 剪枝准确高效</h3>
+<p>ℓ<sub>∞</sub> 剪枝（之前 buggy 版本的做法）在根节点就剪掉一切——因为 partial v 包含前几行的大坐标值。GSO ℓ₂ 下界准确反映了剩余改进空间，对归约好的格基剪枝效果极佳。</p>
+
+<h3>3. 逐方法对比</h3>
+<table>
+<tr><th>失败方法</th><th>B&amp;B 为什么胜过它</th></tr>
+<tr><td>模拟退火</td><td>随机扰动无结构引导，99.9% 的步长炸分。B&amp;B 只探 GSO 结构化的扰动</td></tr>
+<tr><td>贪心坐标下降</td><td>逐坐标贪心是近视的，无法发现多系数协调修正。B&amp;B 同时搜 8 维</td></tr>
+<tr><td>短齐次行</td><td>3 条短行 (ℓ<sub>∞</sub>≤15) 的大坐标位置与 Babai 超标坐标不重叠——在格的不同方向</td></tr>
+<tr><td>fpylll CVP exact</td><td>搜全部 200 维——搜索树巨大，4h 无果。B&amp;B 只搜 8 维</td></tr>
+<tr><td>G6K workout</td><td>改善格基，不直接解决 CVP。Babai 已是局部最优</td></tr>
+<tr><td>LLL + Kannan</td><td>CVP 距离 (ℓ₂≈212) &gt; λ₁ (ℓ₂≈198)，c=−1 解永不最短</td></tr>
+</table>
+
+<h3>4. 核心洞察</h3>
+<p>CVP 解离 Babai 解并不远——ℓ<sub>∞</sub> 差距仅 24 → 15。但这个差距集中在最后几个 GSO 维度，小系数变化通过 μ 矩阵产生大范围全局效应。200 维全枚举是杀鸡用牛刀；8 维 ±4 加 GSO 剪枝，几分钟就能找到。</p>
+
+<h2>五、结论</h2>
+<p>　1. <b>BKZ-80 归约（3.4h）</b>——在正确 SIS 格基上的必要预处理</p>
+<p>　2. <b>Babai CVP</b>——基线解 (score=24)，已是局部最优，小扰动无法改进</p>
+<p>　3. <b>B&amp;B GSO 剪枝（6min）</b>——枚举最后 8 个 GSO 系数 ±4，ℓ₂ 剪枝，突破局部最优到 score=15</p>
+<p style="text-align:center;margin-top:16px;font-size:12pt"><b>正确的搜索子空间 + 正确的剪枝度量 = 分钟级求解</b></p>
+
+</body>
+</html>

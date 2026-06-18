@@ -1,0 +1,146 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,tabularx,multirow,array}
+\usepackage[margin=2cm]{geometry}
+\usepackage{hyperref}
+\DeclareMathOperator{\fracpart}{frac}
+
+\title{Problem 2 --- SIS CVP Solution Report}
+\author{Hermes Agent + B\&B GSO Pruning}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Problem Statement}
+Find $v, u \in \mathbb{Z}^{100}$ such that
+$Av + u \equiv t \pmod{100}$ with $\|v\|_\infty \le 15$, $\|u\|_\infty \le 15$.
+
+\section{Methods Attempted}
+
+\subsection{BKZ Progressive Reduction}
+
+\begin{center}
+\begin{tabular}{cccc}
+\toprule
+BKZ & Time & Homog.\ best & Babai CVP \\
+\midrule
+40  & 3s      & score=32 & score=45 \\
+50  & 15s     & ---      & --- \\
+65  & 2min    & score=21 & score=31 \\
+70  & 7min    & score=17 & score=30 \\
+75  & 1.5h    & score=15 & score=24 \\
+\textbf{80} & \textbf{3.4h} & \textbf{score=14} & score=24 \\
+85  & 15.8h   & killed   & killed \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+BKZ-80 produced homogeneous $\ell_\infty=14$ (3 rows $\le 15$). Babai CVP stuck at 24.
+
+\subsection{Complete Method Comparison}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{l>{\centering\arraybackslash}X>{\centering\arraybackslash}p{2.8cm}}
+\toprule
+Method & Best Score & Verdict \\
+\midrule
+Babai CVP (BKZ-80)              & 24 & baseline \\
+Babai $+$ short homog.\ rows    & 21 & local minimum \\
+Randomized Babai (50K)          & 24 & no improvement \\
+Simulated annealing             & 24 & random steps destructive \\
+Greedy coordinate descent       & 22 & myopic, stuck \\
+Targeted row combinations       & 21 & wrong subspace \\
+LLL $+$ Kannan (corrected $u$)  & 44 & far worse than Babai \\
+G6K workout (bs 40--80)         & 24--26 & no CVP gain \\
+fpylll CVP.closest\_vector      & --- & 3.8h, no result \\
+Z3 / CP-SAT                     & --- & timeout \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Successful Solution: B\&B GSO Pruning}
+
+\subsection{Preprocessing}
+\textbf{Lattice basis} (BKZ-80, $200\times 200$):
+$B = \bigl[\begin{smallmatrix} I_{100} & -A^T \\ 0 & q I_{100} \end{smallmatrix}\bigr]$
+(3h23m, fpylll, strategies=default.json).
+
+\textbf{Babai CVP} gave initial $\|v\|_\infty=24$, $\|u\|_\infty=19$.
+
+\subsection{Algorithm}
+
+GSO vectors $b_1^*,\ldots,b_{200}^*$ with $r_j=\|b_j^*\|^2$.
+Babai coefficients: $c_j = \lfloor\langle t_{\text{curr}}, b_j^*\rangle / r_j\rceil$ ($j=199\to0$).
+
+\textbf{Search}: last $K=8$ coefficients ($j=192\ldots199$), each $\pm4$ around Babai value.
+Combinations: $9^8 \approx 4.3\times 10^7$.
+
+\textbf{Pruning}: at level $j$, $\ell_2$ lower bound from dims $0\ldots j-1$:
+$\ell_2^{\text{lb}} = \sqrt{\sum_{k=0}^{j-1} r_k \cdot \fracpart(\langle t_{\text{res}}, b_k^*\rangle / r_k)^2}$.
+Prune if $\ell_2^{\text{lb}} > \ell_2^{\text{best}}$.
+Dims $0\ldots191$ use Babai rounding only.
+
+\subsection{Result}
+\begin{center}
+24 $\rightarrow$ 23 $\rightarrow$ 22 $\rightarrow$ 20 $\rightarrow$ 18 $\rightarrow$ 17 $\rightarrow$ 16 $\rightarrow$ \textbf{15}
+\end{center}
+
+\textbf{6 minutes}, 43M combinations. \\
+$\|v\|_\infty=15$, $\|u\|_\infty=15$, $Av+u\equiv t\;(100)$ \checkmark\;
+Solution: \texttt{results\_p2/solution\_p2\_20260521\_220739.txt}.
+
+\section{Why B\&B Was Orders of Magnitude Faster}
+
+\subsection{Right Subspace}
+BKZ-80 GSO norm profile:
+\begin{itemize}
+  \item Dims 0--191: $r_j$ large ($\sim 10^4$), Babai rounding is accurate.
+  \item Dims 192--199: $r_j$ small but $\mu_{j,k}$ propagate corrections to all 200 coordinates.
+\end{itemize}
+The Babai error lives almost entirely in the last 8 GSO dimensions.
+
+\subsection{Right Pruning Metric}
+$\ell_\infty$ pruning kills all branches at the root (partial $v$ have large $\ell_\infty$ from first rows).
+$\ell_2$ bound accurately reflects remaining improvement room on well-reduced bases.
+
+\subsection{Head-to-Head}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.5cm}>{\raggedright\arraybackslash}X}
+\toprule
+Failed Method & Why B\&B Beats It \\
+\midrule
+Simulated annealing &
+  Random perturbation has no structural guidance. B\&B explores structured GSO perturbations only. \\
+\midrule
+Greedy descent &
+  Fixes one coordinate at a time, blind to multi-coefficient corrections. B\&B searches all 8 simultaneously. \\
+\midrule
+Short homog.\ rows &
+  Their large-coordinate positions do not overlap Babai's bad coordinates. B\&B uses full GSO structure. \\
+\midrule
+fpylll CVP exact &
+  Searches all 200 dims --- tree is astronomically large. B\&B enumerates only 8. \\
+\midrule
+G6K workout &
+  Improves basis, not CVP. Babai is already locally optimal. \\
+\midrule
+LLL $+$ Kannan &
+  CVP distance ($\ell_2\approx212$) $> \lambda_1$ ($\ell_2\approx198$). The $c=-1$ solution is never shortest. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Core Insight}
+The CVP solution is only $24\to15$ away from Babai in $\ell_\infty$. This gap is concentrated in the last few GSO dimensions, where small coefficient changes produce large global effects via the $\mu$ matrix. Eight dimensions $\pm4$ with GSO-guided pruning finds it in minutes.
+
+\section{Conclusion}
+\begin{enumerate}
+  \item \textbf{BKZ-80} (3.4h) --- essential preprocessing on correct SIS basis.
+  \item \textbf{Babai CVP} --- baseline (score=24), locally optimal, small perturbations cannot improve.
+  \item \textbf{B\&B GSO pruning} (6min) --- enumerates last 8 GSO coefficients $\pm4$, $\ell_2$ pruning, escapes local minimum to score=15.
+\end{enumerate}
+
+\end{document}
